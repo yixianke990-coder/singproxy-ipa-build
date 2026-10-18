@@ -98,19 +98,21 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             2>&1 | tail -60
 
-      - name: Embed entitlements (ad-hoc)
+      - name: Embed entitlements (ldid)
         working-directory: src
         run: |
-          # 未签构建不会把 entitlements 写进二进制；这里 ad-hoc 嵌入，
+          # 未签构建不会把 entitlements 写进二进制，且 codesign 会剥掉主 App 的
+          # networkextension 权限，故改用 ldid 原样嵌入两份权限文件，
           # 让 TrollStore 等保留权限的安装方式拿到 App Group + 网络扩展权限。
+          brew install ldid
           APP=$(find build -name "SingProxy.app" -type d | head -1)
           APEX="$APP/PlugIns/SingProxyTunnel.appex"
-          codesign -f -s - --generate-entitlement-der --entitlements SingProxyTunnel.entitlements "$APEX"
-          codesign -f -s - --generate-entitlement-der --entitlements SingProxy.entitlements "$APP"
+          ldid -SSingProxyTunnel.entitlements "$APEX/SingProxyTunnel"
+          ldid -SSingProxy.entitlements "$APP/SingProxy"
           echo "--- app entitlements ---"
-          codesign -d --entitlements - "$APP" || true
+          ldid -e "$APP/SingProxy" || true
           echo "--- appex entitlements ---"
-          codesign -d --entitlements - "$APEX" || true
+          ldid -e "$APEX/SingProxyTunnel" || true
 
       - name: Package IPA
         working-directory: src
