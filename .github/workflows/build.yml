@@ -1,0 +1,93 @@
+name: Build SingProxy Unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      singbox_tag:
+        description: "sing-box tag (留空 = 自动取最新 v1.12.x)"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack sources
+        run: |
+          mkdir -p src
+          unzip -o SingProxy-sources.zip -d src
+          ls -R src | head -40
+
+      - name: Select newest Xcode
+        run: |
+          ls /Applications | grep -i xcode || true
+          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using $NEWEST"
+          sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Resolve sing-box tag
+        id: sbtag
+        run: |
+          TAG="${{ inputs.singbox_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(git ls-remote --tags https://github.com/SagerNet/sing-box 'v1.12.*' | grep -v '\^{}' | sed 's/.*refs\/tags\///' | sort -V | tail -1)
+          fi
+          echo "sing-box tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build Libbox.xcframework
+        run: |
+          git clone --depth 1 --branch "${{ steps.sbtag.outputs.tag }}" https://github.com/SagerNet/sing-box.git sing-box
+          cd sing-box
+          make lib_ios
+          find . -name "Libbox.xcframework" -maxdepth 2
+          cp -r Libbox.xcframework ../src/
+          ls ../src/Libbox.xcframework
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: src
+        run: xcodegen generate && ls
+
+      - name: Build app (unsigned)
+        working-directory: src
+        run: |
+          xcodebuild build \
+            -project SingProxy.xcodeproj \
+            -target SingProxy \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tail -60
+
+      - name: Package IPA
+        working-directory: src
+        run: |
+          APP=$(find build -name "SingProxy.app" -type d | head -1)
+          echo "App: $APP"
+          ls "$APP"
+          ls "$APP/PlugIns" || true
+          rm -rf Payload && mkdir Payload
+          cp -r "$APP" Payload/
+          zip -qry SingProxy-unsigned.ipa Payload
+          ls -la SingProxy-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SingProxy-unsigned-ipa
+          path: src/SingProxy-unsigned.ipa
