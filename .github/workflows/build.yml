@@ -64,14 +64,34 @@ jobs:
 
       - name: Generate Xcode project
         working-directory: src
-        run: xcodegen generate && ls
+        run: |
+          xcodegen generate
+          ls SingProxy.xcodeproj/xcshareddata/xcschemes/ || echo "no shared schemes yet"
+
+      - name: Ensure shared scheme
+        working-directory: src
+        run: |
+          if [ ! -f SingProxy.xcodeproj/xcshareddata/xcschemes/SingProxy.xcscheme ]; then
+            gem install --no-document xcodeproj
+            ruby -e "
+              require 'xcodeproj'
+              proj = Xcodeproj::Project.open('SingProxy.xcodeproj')
+              app = proj.targets.find { |t| t.name == 'SingProxy' }
+              scheme = Xcodeproj::XCScheme.new
+              scheme.add_build_target(app)
+              scheme.set_launch_target(app)
+              scheme.save_as('SingProxy.xcodeproj', 'SingProxy')
+            "
+          fi
+          ls SingProxy.xcodeproj/xcshareddata/xcschemes/
 
       - name: Build app (unsigned)
         working-directory: src
         run: |
+          set -o pipefail
           xcodebuild build \
             -project SingProxy.xcodeproj \
-            -target SingProxy \
+            -scheme SingProxy \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
