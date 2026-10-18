@@ -48,6 +48,10 @@ jobs:
 
       - name: Build Libbox.xcframework
         run: |
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.8
+          gomobile init
           git clone --depth 1 --branch "${{ steps.sbtag.outputs.tag }}" https://github.com/SagerNet/sing-box.git sing-box
           cd sing-box
           make lib_ios
